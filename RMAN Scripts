@@ -1,0 +1,74 @@
+run {
+#backup database;
+#crosscheck archivelog all;
+#BACKUP ARCHIVELOG ALL DELETE INPUT;
+backup as compressed backupset database;
+backup current controlfile for standby;
+sql "Alter System Archive Log Current";
+Backup filesperset 10 Archivelog all ;
+delete archivelog until time 'sysdate -7';
+}
+
+
+run {
+#DELETE ARCHIVELOG ALL;
+DELETE ARCHIVELOG UNTIL TIME 'SYSDATE - 1/12';
+ALLOCATE CHANNEL t1 DEVICE TYPE DISK FORMAT   '/backup/lv0_df_%dd_%s_p.bus';
+ALLOCATE CHANNEL t2 DEVICE TYPE DISK FORMAT   '/backup/lv0_df_%dd_%s_p.bus';
+ALLOCATE CHANNEL t3 DEVICE TYPE DISK FORMAT   '/backup/lv0_df_%dd_%s_p.bus';
+backup incremental level 0 database;
+crosscheck archivelog all;
+BACKUP ARCHIVELOG ALL DELETE INPUT;
+}
+
+
+run {
+#DELETE ARCHIVELOG ALL;
+ALLOCATE CHANNEL t1 DEVICE TYPE DISK FORMAT   '/backup/lv1_df_%dd_%s_p.bus';
+ALLOCATE CHANNEL t2 DEVICE TYPE DISK FORMAT   '/backup/lv1_df_%dd_%s_p.bus';
+ALLOCATE CHANNEL t3 DEVICE TYPE DISK FORMAT   '/backup/lv1_df_%dd_%s_p.bus';
+backup as compressed backupset incremental level 1 database;
+crosscheck archivelog all;
+#BACKUP ARCHIVELOG ALL DELETE INPUT;
+BACKUP ARCHIVELOG ALL;
+delete archivelog until time 'sysdate-2';
+}
+
+run
+{
+crosscheck archivelog all;
+crosscheck backup;
+backup as compressed backupset database;
+backup as compressed backupset archivelog all;
+backup as compressed backupset current controlfile;
+backup current controlfile for standby format '/backup/controlfile_stby_%d_%T';
+delete archivelog until time 'sysdate-2';
+}
+
+run
+{
+delete archivelog until time 'sysdate-2';
+}
+
+
+run {
+        crosscheck archivelog all;
+        delete archivelog all;
+}
+
+RESTORE
+=======
+Copiar los *.bus y los controlfiles al directorio anterior (/backup/)
+si es deshacer cambios : borrar los archives en /arch/
+
+su - oracle
+export ORACLE_SID=<SID>
+rman target /
+rman> startup force nomount;
+rman> set DBID=1431976830  --- (o el  DBID number )
+rman> restore controlfile from '/backup/controlfile_SID_c-1431976830-20130214-01';   (Es el ¦ltimo controlfile generado)
+rman> mount database;
+rman> restore database;
+rman> recover database;
+rman> alter database open resetlogs;
+rman> sql "ALTER TABLESPACE TEMP ADD TEMPFILE ''/oradata/temp01.dbf'' SIZE 20480M  REUSE";
