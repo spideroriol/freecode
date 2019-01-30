@@ -1,0 +1,88 @@
+USE [master]
+GO
+/****** Object:  StoredProcedure [dbo].[sp_estadistica_conx]    Script Date: 08/16/2011 11:02:29 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+CREATE PROCEDURE [dbo].[sp_estadistica_conx]
+AS
+BEGIN
+ insert INTO tmp_sysprocesses
+ select spid, sid, loginame, login_time, dbid, hostname, program_name, hostprocess, cmd, cpu, physical_io, getdate() as actual_date
+ from  sysprocesses	
+END
+
+=========================================
+
+-- ******************************************************************************
+-- ***  Obtener la información de sysprocesses, a través de varias muestras,  ***
+-- ***  para poder estimar el reparto del consumo de CPU reciente             ***
+-- ******************************************************************************
+
+-- ***  Si existe la tabla temporal => La eliminamos, para luego poder crearla con SELECT INTO  ***
+if object_id('tempdb..#tmp_sysprocesses') is not null
+   drop table #tmp_sysprocesses
+
+
+-- ***  Creamos la tabla temporal, con una primera muestra de la info de sysprocesses  ***
+select spid, sid, loginame, login_time, dbid, hostname, program_name, hostprocess, cmd, cpu, physical_io, getdate() as actual_date
+INTO tmp_sysprocesses
+from  sysprocesses
+
+-- ***  Iteramos el número de veces solicitadas. Para cada iteración:         ***
+-- ***     - Esperamos la franja de tiempo solicitada                         ***
+-- ***     - Almacenamos en la tabla temporal, otra muestra de sysprocesses   ***
+while (@count>0)
+begin
+
+   WAITFOR DELAY @delay
+
+   insert INTO #tmp_sysprocesses
+   select spid, sid, loginame, login_time, dbid, hostname, program_name, hostprocess, cmd, cpu, physical_io, getdate() as actual_date
+   from  sysprocesses
+
+   set @count = @count-1
+end
+
+
+-- ****************************************************************************
+-- ***  Mostrar la info de las conexiones, con el consumo de CPU realizado  ***
+-- ****************************************************************************
+select spid, loginame, DB_NAME(dbid) dbname, login_time, hostname, program_name, hostprocess, max(cpu)-min(cpu) cpu, max(physical_io)-min(physical_io) physical_io, count(*) veces
+from  tmp_sysprocesses
+group by spid, sid, loginame, login_time, dbid, hostname, program_name, hostprocess
+having max(cpu)-min(cpu)>0
+order by max(cpu)-min(cpu) desc, max(physical_io)-min(physical_io) desc
+
+
+-- **************************************************************************************
+-- ***  Mostrar el consumo de CPU por cada BBDD, para ayudar a localizar el problema  ***
+-- **************************************************************************************
+SELECT dbname, sum(cpu) as cpu
+from
+(
+select spid, loginame, DB_NAME(dbid) dbname, login_time, max(cpu)-min(cpu) cpu, max(physical_io)-min(physical_io) physical_io, count(*) veces
+from  tmp_sysprocesses
+group by spid, sid, loginame, login_time, dbid, hostname, program_name, hostprocess
+having max(cpu)-min(cpu)>0
+) DRV_TBL
+group by dbname
+order by cpu desc
+
+
+select DB_NAME(dbid),convert(varchar, login_time, 103) Fecha, 
+       convert(varchar, login_time, 108) Hora,
+       loginame ,count(*) veces
+from tmp_sysprocesses 
+group by DB_NAME(dbid),convert(varchar, login_time, 103), convert(varchar, login_time, 108),loginame
+order by 1,2,4
+
+
+select DB_NAME(dbid),hostname,convert(varchar, login_time, 103) Fecha, 
+       left(convert(varchar, login_time, 108),2) Hora,
+       loginame ,count(*) veces
+from tmp_sysprocesses where DB_NAME(dbid) ='BANNERS'
+group by DB_NAME(dbid),hostname,convert(varchar, login_time, 103), 
+         left(convert(varchar, login_time, 108),2),loginame
+order by 2,3,4
