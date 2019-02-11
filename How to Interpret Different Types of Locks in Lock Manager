@@ -1,0 +1,685 @@
+Goal: How to Interpret Different Types of Locks in Lock Manager
+Fix: How to Interpret Lock Types in Lock Manager
+
+PURPOSE
+
+    How to interpret the different types of locks in Lock Manager 1.6
+
+CONTENT
+
+    This is the description of the locks that we acquire in multi-instance
+    mode.
+
+===========================================================
+          Explanation of Global Enqueues and Instance Locks
+                   That Require Lock Manager Resources
+===========================================================
+
+Lock Type      : Two character code prefix and its name
+How Many       : Number of unique resources that can be locked
+How Many Users : Number of users who will acquire locks on this resource
+Who Uses       : Terse explanation of who acquires locks.
+When Used      : Terse explanation of when and how the locks are acquired.
+
+Notation/Terminology:
+ "1/ foo"      = "one per foo"
+ "LCK0"        = "first lock process"
+ "LCK*"        = "lock processes"
+ "DBWR"        = "database writer"
+ "LGWR"        = "log writer"
+ "SMON"        = "system monitor"
+ "PMON"        = "process monitor"
+ "RECO"        = "distrbuted transaction recovery monitor"
+ "Pxxx"        = "parallel slave process"
+ "Dxxx"        = "MTS dispatcher process"
+ "Sxxx"        = "MTS server process"
+ "background"  = one of PMON,DBWR,LGWR,SMON,RECO,Pxxx,Sxxx,Dxxx
+ "foreground"  = a server process serving a user session or a MTS Sxxx
+                 process serving a user session
+ "process"     = used interchangably to describe foreground or background
+                 processes/sessions.
+
+============================================================
+Lock Type     : BL, Buffer Cache Management
+How Many      : Value specified in 'gc_db_locks'
+How Many Users: All processes, indirectly through LCK* processes
+Who Uses      : LCK* processes
+
+When and How Used:
+   When acessing database blocks. All acquired in NULL mode by each
+   instance's LCK* processes when an instance is started. Converted up and
+   down to different modes by LCK* processes in response to requests from
+   user foregrounds and instance backgrounds. Each lock covers a portion of
+   the physical database on disk, by file and block range, in accordance
+   with the setting of 'gc_file_to_locks'.
+
+=============================================================
+Lock Type     : CF, Controlfile Transaction
+How Many      : 1 to serialize controlfile transactions, 1 to serialize reads
+                and writes from shared information portion of controlfile,
+                which is a special global notepad area of the controlfile.
+How Many Users: (depends)
+Who Uses      : Any foreground or background doing a controlfile transaction
+
+When Used:
+    When switching logfiles, held exclusive.
+    When updating checkpoint information for datafiles, held exclusive.
+    When opening a logfile for redo reading during recovery, held shared.
+    When getting information to perform archiving, held shared.
+    When performing crash recovery, held exclusive.
+    When performing instance recovery, held exclusive.
+    When performing media recovery, held exclusive.
+    When dumping logfile history, held shared.
+    When updating archiving information, then exclusive.
+    When creating a database, held exclusive.
+    When mounting a database, held shared.
+    When closing a database, held shared.
+    When adding a logfile or logfile member, held exclusive.
+    When dropping a logfile or logfile member, held exclusive.
+    When checking information about logfile group members, held shared.
+    When adding a new datafile, held exclusive.
+    When dropping a datafile, held exclusive.
+    When re-creating (as empty) an existing database file, held shared to
+       find the file, held exclusive to perform the update to the file entry
+       in the controfile when the zeroing task is complete.
+    When identifying or re-identifying database files, held shared.
+    When setting a set of datafiles OFFLINE, held exclusive twice in a
+       two step process.
+    When setting a set of datafiles ONLINE, held exclusive, and then again
+       when the transaction subsystem completes applying save undo to the
+       on-line'ed files, a two-step process.
+    When marking a set of datafiles READONLY, held exclusive twice in a
+       two-step process.
+    When marking a set of READONLY datafiles READWRITE, held exclusive twice
+       in a two-step process.
+    When formatting a new controlfile, i.e. CREATE CONTROLFILE, held
+       exclusive.
+    When beginning a hot backup, held exclusive.
+    When ending a hot backup, held exclusive.
+    When checking to see, after a crash, whether datafiles are in hot backup
+       mode, held shared, then exclusive.
+    When executing a ALTER DATABASE BACKUP CONTROLFILE TO TRACE, held
+       shared.
+    When opening the database (controlfile), held exclusive by first instance
+       to open, shared by subsequent instances.
+    When renaming datafiles or logfiles, held exclusive.
+    When marking a controlfile as valid and mountable, held exclusive.
+    When handling an error encountered in the controlfile, held exclusive.
+    When validating data dictionary entries against matching controlfile
+       records for file entries, held exclusive.
+    When updating controlfile format after a software upgrade, held exclusive.
+    When scanning for log file info by log sequence #, held shared.
+    When finding the highest-in-use entry of a particular controfile record
+       type, held shared.
+    When getting information about the number of log entries and their
+       lowest/highest sequence number and log file numbers, held shared.
+    When looking up a controlfile record matching a given filename, held
+       shared.
+    When retrieving or updating a controlfile record, held shared for
+       retrieval, exclusive for update.
+    When making a backup controlfile, held exclusive for the duration of the
+       copy.
+    When dumping the contents of the controlfile during debugging, held shared.
+    When dumping contents of a current redo lofile during debugging, held
+       shared.
+    When dumping contents of redo log headers, held shared.
+    When dumping contents of datafile headers, held shared.
+    When updating MAC security mode in Trusted Oracle, held exclusive.
+    When reading shared information from the controlfile, held
+       exclusive until shared information is written back updated, or done
+       looking at it. Shared information is read and updated infrequently
+       and is used primarily for instances to agree on compatibility, modes
+       of operation, and for system commit number housecleaning in instance
+       recovery situations.
+
+==============================================================================
+Lock Type     : CI, Cross-instance Call Invocation
+How Many      : 4/unique type of cross-instance call, acquired on the fly
+                as a particular call is requested (call,parameter,queue,return)
+                The four locks for each call are used as a mechanism to allow
+                an RPC on a remote instance background process.
+How Many Users: Potentially all foreground or backgrounds
+Who Uses      : All foreground and backgrounds
+
+When Used:
+    Used to invoke specific actions in background processes on a specific
+    instance or all instances. Examples include 3, log switch,
+    shutting down, identifying or re-identifying datafiles, etc. All in all,
+    there are a small number (10's) of pre-defined cross-instance call types.
+
+=============================================================
+Lock Type     : DF, Datafile
+How Many      : 1/ on-line file
+How Many Users: 1/ instance
+Who Uses      : DBWR's
+
+When Used:
+    Obtained shared by DBWR in every instance as the instance comes up or
+    upon request of a re-identify request. It is held shared for the life of
+    the instance, and is used to notice changes like a file being off-lined on
+    another instance. It is also held exlusive when bringing a file on-line.
+
+==============================================================
+Lock Type     : DL, Direct Loader Index Creation
+How Many      : 1/ table being direct loaded
+How Many Users: 1/ direct loader / object
+Who Uses      : SQL*Loader in Direct-path mode
+
+When Used:
+    When initializing to do a direct load of a table, held shared by every
+    direct loader session loading that object for the duration of the load.
+    Acquired and held shared exclusive when creating an index on the table.
+
+===============================================================
+Lock Type     : DM, Database Mount
+How Many      : 1 if mounted EXCLUSIVE, 5 if mounted SHARED
+How Many Users: Any processes trying to mount/open a database
+Who Uses      : Any processes trying to mount/open a database
+
+When Used:
+    When mounting or opening a database, if the database is being mounted
+    exclusive, then one lock is acquired to ensure no other instances
+    can successfully mount it; if the database is being mounted shared,
+    all five locks are used to ensure that all processes attempting to
+    mount or open on all instances have a consistent view of the mount
+    or open state of the database.
+
+===============================================================
+Lock Type     : DR, Distributed Recovery
+How Many      : 1
+How Many Users: 1/ instance
+Who Uses      : RECO's
+
+When Used:
+    Used to ensure that only one RECO is doing distributed transaction
+    recovery actions at a time.
+
+================================================================
+Lock Type     : FS, File Set
+How Many      : 2
+How Many Users: Used by processes performing actions that require that the
+                files that make up the database do not change the set of
+                files it may be performing the action on.
+Who Uses      : Used by processes performing actions that require that the
+                files that make up the database do not change the set of
+                files it may be performing the action on.
+
+When Used:
+    The first lock is used to hold the set consistent for actions like
+    dropping or renaming a datafile. The second is used to when validating
+    controlfile information regarding files with information stored in the
+    data dictionary.
+
+===============================================================
+Lock Type     : KK, Redo Log "Kick"
+How Many      : 1/ redo thread, i.e. 1/instance in 7.x
+How Many Users: 1/ instance
+Who Uses      : LGWR's
+
+When Used:
+    Used to keep on-line redo logs archiving off of idle instances,
+    while other active instances generate redo and archive on-line logs.
+    The intent is to keeps archive streams from all participating instances
+    close to eachother in time, so that a set of archived logs for all
+    redo streams/instances can easily be identified and managed for
+    backup or recovery. Also used in executing the ALTER SYSTEM ARCHIVE
+    LOG CURRENT command, which is used to cause all instances to archive
+    their current logs.
+
+================================================================
+Lock Type     : IN, Instance Number
+How Many      : 1/ active instance
+How Many Users: 1/ instance
+Who Uses      : DBWR's
+
+When Used:
+    Used to ensure either obtain or ensure that the instance_number parameter,
+    used for freelist management, is unique for every instance accessing a
+    database.
+
+================================================================
+Lock Type     : IR, Instance Recovery
+How Many      : 1
+How Many Users: at most 1/ instance
+Who Uses      : SMON's and processes attempting to open the database
+
+When Used:
+    Used to ensure that only one SMON process or ALTER DATABASE OPEN is
+    performing instance recovery at any given time.
+
+================================================================
+Lock Type     : IS, Instance State
+How Many      : 3
+How Many Users: All processes that want to mount/dismount or open/close a
+                database. Also held by users who want to keep the instance
+                in its current state.
+Who Uses      : All processes that want to mount/dismount or open/close a
+                database. Also held by users who want to keep the instance
+                in its current state.
+
+When Used:
+    Processes that wish to modify the instance state acquire the locks in
+    exclusive mode. Processes that want to hold the instance in a particular
+    mode acquire them shared.
+
+=================================================================
+Lock Type     : MM, Mount Definition
+How Many      : 1/ read-only database being mounted to the read-write database
+How Many Users: Any process trying to mount a read-only database under Trusted
+                Any process asking for library cache cleanout of remote objects
+Who Uses      : Any process trying to mount a read-only database under Trusted
+                Any process asking for library cache cleanout of remote objects
+
+When Used:
+    Only used by Trusted Oracle currently.
+
+=================================================================
+Lock Type     : MR, Media Recovery
+How Many      : 1+1/ file
+How Many Users: Any proc doing media recovery or ALTER DATABASE OPEN RESETLOGS
+Who Uses      : Any proc doing media recovery or ALTER DATABASE OPEN RESETLOGS
+
+When Used:
+    Held shared by any process performing media recovery to prevent any other
+    process from performing an ALTER DATABASE OPEN RESETLOGS. The file access
+    locks are held shared by on-line users of a particular datafile to prevent
+    recovery actions from taking place. They are held exclusive by processes
+    performing recovery actions on that file.
+
+=================================================================
+Lock Type     : IV, Library Cache Invalidation
+How Many      : 1 / valid and existent database object that is currently
+                cached in the library cache (valid and existent table, view,
+                procedure, function, package, package body, trigger, index,
+                cluster, synonym);
+                cursors (SQL and PL/SQL), pipes, invalid or non-existent
+                objects, and any other transient objects do not use this lock
+How Many Users: All processes
+Who Uses      : LCK0 and the process which wants to invalidate objects
+                cached across all instances
+
+When Used:
+    When a valid and existent database object is brought into the library
+    cache, LCK0 is asked to acquire the lock in the correct mode (always S).
+    It is held until the object becomes invalid or non-existent or is aged out
+    of the library cache. This lock is used to invalidate objects cached
+    across all instances. The process that wants to invalidate an object
+    simply acquires the lock in X mode on the object causing all instances
+    to invalidate their cached objects responding to BAST's and release their
+    IV locks on their objects; then, the invalidating process immediately
+    releases the X lock.
+
+==================================================================
+Lock Type     : L[A-P], Library Cache Lock
+How Many      : 1 / database object referenced during parsing or compiling of
+                SQL or PL/SQL statements (table, view, procedure, function,
+                package, package body, trigger, index, cluster, synonym);
+                released at the end of parse or compilation;
+                cursors (SQL and PL/SQL areas), pipes and any other transient
+                objects do not use this lock
+How Many Users: All processes
+Who Uses      : All processes
+
+When Used:
+    When a database object (table, view, procedure, function, package,
+    package body, trigger, index, cluster, synonym) is referenced during
+    parsing or compiling of a SQL (DML/DDL) or PL/SQL statement, the process
+    parsing or compiling the statement acquires the lock in the
+    correct mode. It is held until the parse or compilation completes
+    (for the duration of the parse call). In V6, these locks are known as
+    parse or DDL locks except that in V6 these locks are held for the duration
+    of the cursor (i.e., until the cursor is closed); in Oracle7, these locks
+    are held only during the parse call.
+
+
+==================================================================
+        Part II - Explanation of Global Enqueues and Instance Locks
+                    That Require Lock Manager Resources
+ This is the description of the locks that we acquire in multi-instance mode
+==================================================================
+Lock Type     : P[A-Z], Library Cache Pin (will be N[A-Z] in 7.1.3)
+How Many      : 1 / database object that is currently cached in the library
+                cache (table, view, procedure, function, package, package
+                body, trigger, index, cluster, synonym);
+                in the library cache, a database object is cached in 2 parts:
+                "handle" and "object"; only when the "object" part is cached,
+                this lock is held;
+                cursors (SQL and PL/SQL areas), pipes and any other transient
+                objects do not use this lock
+How Many Users: All processes
+Who Uses      : LCK0
+
+When Used:
+    Used when pinning "object" parts of database objects (see above) in an
+    instance's library cache. Held until the "object" part is flushed or aged
+    out (e.g., as the result of another object needing cache space, and the
+    object to be flushed is not pinned or in use).
+
+==================================================================
+Lock Type     : Q[A-Z], Row Cache
+How Many      : 1/ row cache entry of any type (corresponds to dc_* params)
+                (ts$, fet$, seg$, undo$, uet$, tsq$, file$, user$, obj$,
+                 tables, views, clusters, synonyms, user names, object ids,
+                 constraints, sequence cache entries, profiles, database
+                 links, histograms)
+How Many Users: All processes
+Who Uses      : All processes
+
+When Used:
+    Used to keep row cache entries coherent across instances. Row cache
+    entries are caches of recently used data dictionary information.
+
+==================================================================
+Lock Type     : PF, Password File
+How Many      : 1
+How Many Users: All processes either accessing or modifying the password file
+Who Uses      : All processes either accessing or modifying the password file
+
+When Used:
+    Acquired exclusive to read or update the password file.
+
+==================================================================
+Lock Type     : PI, Parallel Slaves
+How Many      : 1/ parallel query,index,recovery process group
+How Many Users: All processes trying to add parallel slaves to a slave
+                server group
+Who Uses      : All processes trying to add parallel slaves to a slave server
+                group
+
+When Used:
+    To synchronize the creation of new parallel slave servers and their
+    addition to a parallel slave group on behalf of a parallel query, a
+    parallel index creation, or a parallel recovery session.
+
+==================================================================
+Lock Type     : PR, Process Startup
+How Many      : 1
+How Many Users: Any process starting up a background process or an MTS server
+Who Uses      : Any process starting up a background process or an MTS server
+
+When Used:
+    Acquired exclusive to serialize creatiion of background or MTS server
+    processes.
+
+==================================================================
+Lock Type     : PS, Parallel Slave Synchronization
+How Many      : 1/ parallel slave server process
+How Many Users: All processes working on behalf of a parallel query, index
+                creation, or recovery action.
+Who Uses      : All processes working on behalf of a parallel query, index
+                creation, or recovery action.
+
+When Used:
+    Used to control execution flow of parallel slaves for parallel query,
+    parallel index creation, and parallel recovery.
+
+==================================================================
+Lock Type     : RT, Redo Thread
+How Many      : Up to 12, one for LGWR, one for DBWR, and one for each
+                configured LCK process [LCK0-LCK9]
+How Many Users: Up to 3-12/instance
+Who Uses      : Each of the set above, and by processes testing to see if
+                instance has failed.
+
+When Used:
+    Used to detect the death of an instance after a BL lock is found to be
+    invalid. Each is acquired exclusive by the associated process of each
+    instance. If they can ever all be granted for a given set of processes
+    associated with a particular instance, then instance failure can be
+    inferred.
+
+=================================================================
+Lock Type     : SC, System Commit Number
+How Many      : 1
+How Many Users: All processes
+Who Uses      : All processes
+
+When Used:
+    The System Commit Number (SCN) is used to serialize time within a
+    single instance, and across all instances. This lock resource caches
+    the current value of the SCN, the value is incremented in response to
+    many database event, but most notably COMMIT WORK. Access to the SCN
+    lock value to get and store the SCN is batched on most cluster
+    implementations, so that every process that needs a new SCN gets one
+    and stores a new value back on one instance, before the SCN lock is
+    released so that it may be granted to another instance. Processes
+    get the SC lock once and then use conversion operations to manipulate
+    the lock value.
+
+==================================================================
+Lock Type     : SM, SMON
+How Many      : 1
+How Many Users: 1/ instance
+Who Uses      : SMON's
+
+When Used:
+    Used whenever an SMON wakes up to see if there is work to do. Acquired
+    when SMON's are started in NULL mode, and converted to exclusive and back
+    when checking for work to do, currently every five minutes.
+
+=================================================================
+Lock Type     : SN, Sequence Number
+How Many      : 1/ cached sequence
+How Many Users: All processes using sequences.
+Who Uses      : All processes using sequences.
+
+When Used:
+    When using sequence number generators.
+
+=================================================================
+Lock Type     : SQ, Sequence Number Enqueue
+How Many      : 1/ cached sequence
+How Many Users: All processes using sequences.
+Who Uses      : All processes using sequences.
+
+When Used:
+    When using sequence number generators.
+
+=================================================================
+Lock Type     : SV, Sequence Number Value
+How Many      : 1/ cached sequence
+How Many Users: All processes using sequences.
+Who Uses      : All processes using sequences.
+
+When Used:
+    When using sequence number generators.
+
+==================================================================
+Lock Type     : ST, Space Management Transaction
+How Many      : 1
+How Many Users: Any process allocating, freeing, or coalescing free space.
+Who Uses      : Any process allocating, freeing, or coalescing free space.
+
+When Used:
+    Used to serialize space transactions across all instances, which are
+    executed within a transaction when space requires allocation or
+    de-allocation. Also acquired by SMON or foreground processes when
+    two or more physically adjacent free extents are coalesced back into
+    one extent.
+
+==================================================================
+Lock Type     : TA, Transaction Recovery
+How Many      : 2 + 2/ in-use, non-SYSTEM rollback segment
+How Many Users: Any process attempting to do transaction recovery.
+Who Uses      : LGWR's, SMON's and any process doing transaction recovery.
+
+When Used:
+    An SMON acquires locks exclusive to do instance recovery.
+    LGWR's hold the locks shared and/or exclusive for in-use/on-line
+    rollbacks segments.
+    Held exclusive by foreground processes when brining rollback segments
+    on-line.
+
+===================================================================
+Lock Type     : TM, DML Enqueue
+How Many      : 1 + 1/ table referenced
+How Many Users: 1/ instance + n/ table for n concurrent users of a table
+Who Uses      : All processes when referencing tables *and* dml_locks > 0
+
+When Used:
+    The instance lock is used when an instance attempts to mount the database
+    to ensure that all participating instances either have dml_locks = 0 or
+    dml_locks != 0, if not ORA-61 is returned and the mount attempt fails.
+    The per table locks are acquired during the exection of a transaction
+    when referencing a table with a DML statement so that the object is not
+    dropped or altered during the execution of the transaction, if and only
+    if the dml_locks parameter is non-zero.
+
+====================================================================
+Lock Type     : TS, Temporary Segment (also TableSpace)
+How Many      : 2/ temporary segment (e.g. for sorts)
+                + 1/ tablespace being dropped or having a rollback segment
+                created in it.
+How Many Users: All processes using temp space, DROP TABLESPACE, or
+                CREATE ROLLBACK SEGMENT
+Who Uses      : All processes using temp space, DROP TABLESPACE, or CREATE
+                ROLLBACK SEGMENT
+When Used:
+    The two temporary segment locks are used for two different purposes on
+    each temp segment. The first use is to serialize the "high water mark"
+    or where the highest allocated point of the segment is. The second is
+    used to serialize creation, use, and deletion of a temp segment. It is
+    acquired by LCK0.
+    The tablespace enqueue is acquired either when dropping that tablespace
+    or when creating a rollback segment in it. The purpose is to avoid
+    deadlocks that can occur on resource in the row cache (dictionary cache).
+
+====================================================================
+Lock Type     : TT, Temporary Table
+How Many      : 1
+How Many Users: Any process starting an instance.
+Who Uses      : Any process starting an instance.
+
+When Used:
+    Used after recovery of an instance at instance startup to allocate and
+    initialize private and public rollback segments to the instance being
+    started. Acquired exclusive for the duration of the operation.
+
+====================================================================
+Lock Type     : TX, Transaction
+How Many      : 1/ active transaction
+How Many Users: 1 + 1/process waiting for something locked by this transaction
+Who Uses      : All processes
+
+When Used:
+    Acquired exclusive when a transaction initiates its first change and held
+    until the transaction does a COMMIT or ROLLBACK. Also acquired exclusive
+    by SMON when doing recovery (undo) of a transaction. Used as a queuing
+    mechanism for processes waiting for something locks by a transaction's
+    change to become available again.
+
+====================================================================
+Lock Type     : UL, User-defined Locks
+How Many      : As many as put in use by the DBMS_LOCK package.
+How Many Users: As many as are using the DBMS_LOCK package to synchronize
+                user applications between processes on multiple instances.
+Who Uses      : Any application process using the DBMS_LOCK package.
+
+When Used:
+    In accordance with the client applications use of the DBMS_LOCK package
+ 	   in PL/SQL.
+
+====================================================================
+Lock Type     : UN, User Name
+How Many      : 1/ active userid
+How Many Users: 1/ session using a particular userid
+Who Uses      : Processes logging in to the database or doing DROP USER
+
+When Used:
+    During login, locks are acquired shared to ensure that no other process
+    does a DROP USER of that particular user's information in the dictionary.
+    Acquired exclsuive during DROP USER.
+
+====================================================================
+Lock Type     : WL, Being written Redo Log
+How Many      : 1/ redo log being archived
+How Many Users: 1/ instance + any foreground sessions which are archiving
+Who Uses      : ARCH's + any foreground sessions which are archiving
+
+When Used:
+    Used to determine whether or not a logfile is available for archiving (it
+    is unavailable if some other process is already archiving it). Acquired
+    shared to do the test, and acquired exclusive by the process actually
+    doing archiving.
+
+
+
+The following table describes what lock modes on DML enqueues are actually 
+gotten for which table operations in a standard Oracle installation.
+
+ Operation                Lock Mode LMODE Lock Description
+------------------------- --------- ----- ----------------
+ Select                     NULL     1    null
+ Select for update          SS       2    sub share
+ Insert                     SX       3    sub exclusive
+ Update                     SX       3    sub exclusive
+ Delete                     SX       3    sub exclusive
+ Lock For Update            SS       2    sub share
+ Lock Share                 S        4    share
+ Lock Exclusive             X        6    exclusive
+ Lock Row Share             SS       2    sub share
+ Lock Row Exclusive         SX       3    sub exclusive
+ Lock Share Row Exclusive   SSX      5    share/sub exclusive
+ Alter table                X        6    exclusive
+ Drop table                 X        6    exclusive
+ Create Index               S        4    share
+ Drop Index                 X        6    exclusive
+ Truncate table             X        6    exclusive
+-----------------------------------------------------------
+The compatibility of lock modes are normally represented by following matrix:
+
+       NULL    SS      SX      S       SSX     X
+-----------------------------------------------------
+ NULL  YES     YES     YES     YES     YES     YES
+   SS  YES     YES     YES     YES     YES     no
+   SX  YES     YES     YES     no      no      no
+    S  YES     YES     no      YES     no      no
+  SSX  YES     YES     no      no      no      no
+    X  YES     no      no      no      no      no
+
+
+
+The Oracle enqueues are:
+BL, Buffer Cache Management
+CF, Controlfile Transaction
+CI, Cross-instance Call Invocation
+CU, Bind Enqueue
+DF, Datafile
+DL, Direct Loader Index Creation
+DM, Database Mount
+DR, Distributed Recovery
+DX, Distributed TX
+FS, File Set
+IN, Instance Number
+IR, Instance Recovery
+IS, Instance State
+IV, Library Cache Invalidation
+JQ, Job Queue
+KK, Redo Log "Kick"
+L[A-P], Library Cache Lock
+MR, Media Recovery
+N[A-Z], Library Cache Pin
+PF, Password File
+PI, Parallel Slaves
+PR, Process Startup
+PS, Parallel Slave Synchronization
+Q[A-Z], Row Cache
+RT, Redo Thread
+SC, System Commit Number
+SM, SMON
+SQ, Sequence Number Enqueue
+SR, Synchronized Replication
+SS, Sort Segment
+ST, Space Management Transaction
+SV, Sequence Number Value
+TA, Transaction Recovery
+TM, DML Enqueue
+TS, Temporary Segment (also TableSpace)
+TT, Temporary Table
+TX, Transaction
+UL, User-defined Locks
+UN, User Name
+US, Undo Segment, Serialization
+WL, Being Written Redo Log
+XA, Instance Attribute Lock
+XI, Instance Registration Lock
