@@ -1,0 +1,142 @@
+# import library
+import imageio
+import numpy as np
+from PIL import Image, ImageOps,ImageFilter
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
+
+
+%matplotlib inline
+
+### https://www.codementor.io/@innat_2k14/image-data-analysis-using-numpy-opencv-part-1-kfadbafx6
+
+
+def aplicar_escala_gises(rgb):
+    return np.dot(rgb[...,:3], [0.299, 0.587, 0.144])
+
+
+def sepia(image_path:str)->Image:
+    img = Image.open(image_path)
+    width, height = img.size
+
+    pixels = img.load() # create the pixel map
+
+    for py in range(height):
+     for px in range(width):
+         r, g, b = img.getpixel((px, py))
+
+         tr = int(0.393 * r + 0.769 * g + 0.189 * b)
+         tg = int(0.349 * r + 0.686 * g + 0.168 * b)
+         tb = int(0.272 * r + 0.534 * g + 0.131 * b)
+
+         if tr > 255:
+             tr = 255
+
+         if tg > 255:
+             tg = 255
+
+         if tb > 255:
+             tb = 255
+
+         pixels[px, py] = (tr,tg,tb)
+
+    return img
+
+def blur(imagen):
+    imgruido =  imagen.filter(ImageFilter.BLUR)
+    imgruido.save('BLUR.png')
+    return None
+
+# read an image
+image = imageio.imread('/home/joaquin/Documents/minion.jpg')
+plt.figure(figsize = (5,5))   ####  V2---- Se agrego para agrandarlo 
+
+### np_array = np.array(imageio.imread('/home/joaquin/Documents/minion.jpg') , dtype = 'int')
+### lista_3d = np_array.tolist()
+
+gray = aplicar_escala_gises(image)
+plt.imshow(gray, cmap = plt.get_cmap('gray'))
+###plt.savefig('/home/joaquin/Documents/minion-gray0002.jpg')
+plt.title('Gray channel')
+plt.show()
+
+###### Propiedades de la imagen 
+print('Type of the image : ' , type(image))
+print()
+print('Shape of the image : {}'.format(image.shape) + 'Tamaño ' + format(image.size) + ' T.Minimo ' + format(image.min()) + '  T.Maximo  ' + format(image.max())) 
+print('Image Hight {}'.format(image.shape[0]))
+print('Image Width {}'.format(image.shape[1]))
+print('Dimension of Image {}'.format(image.ndim))
+###
+# A specific pixel located at Row : 100 ; Column : 50 
+# Each channel's value of it, gradually R , G , B
+### Recordar
+###
+###    0 index value for Red channel
+###    1 index value for Green channel
+###    2 index value for Blue channel
+###
+###    
+print('Value of only R channel {}'.format(image[ 100, 50, 0]))
+print('Value of only G channel {}'.format(image[ 100, 50, 1]))
+print('Value of only B channel {}'.format(image[ 100, 50, 2]))
+
+### Manipulando los Pixel
+plt.title('R channel')
+plt.ylabel('Height {}'.format(image.shape[0]))
+plt.xlabel('Width {}'.format(image.shape[1]))
+
+plt.imshow(image[ : , : , 0])
+plt.show()
+####
+####
+plt.title('G channel')
+plt.ylabel('Height {}'.format(image.shape[0]))
+plt.xlabel('Width {}'.format(image.shape[1]))
+
+plt.imshow(image[ : , : , 1])
+plt.show()
+
+plt.title('B channel')
+plt.ylabel('Height {}'.format(image.shape[0]))
+plt.xlabel('Width {}'.format(image.shape[1]))
+
+plt.imshow(image[ : , : , 2])
+plt.show()
+
+#### HAciendo pequeños cuadros
+
+fig, ax = plt.subplots(nrows = 1, ncols=3, figsize=(15,5))
+for c, ax in zip(range(3), ax):
+    # create zero matrix
+    split_img = np.zeros(image.shape, dtype="uint8") # 'dtype' by default: 'numpy.float64'   
+    # assing each channel 
+    split_img[ :, :, c] = image[ :, :, c]
+    # display each channel
+    ax.imshow(split_img)
+    
+#### Otra Forma de hacer Grices usando esta Formula Y' = 0.299 R + 0.587 G + 0.114 B
+gray = lambda rgb : np.dot(rgb[... , :3] , [0.299 , 0.587, 0.114]) 
+gray = gray(image)  
+
+plt.title('Nuevo Gris channel')
+plt.figure( figsize = (10,10))
+plt.imshow(gray, cmap = plt.get_cmap(name = 'gray'))
+plt.show()
+
+
+#### Sepia 
+sep = sepia('/home/joaquin/Documents/minion.jpg')
+plt.imshow(sep, cmap = plt.get_cmap('PuBu'))
+plt.title('Sepia channel')
+plt.show()
+
+
+#### Efecto Espejo
+im = Image.open('/home/joaquin/Documents/minion.jpg')
+im_mirror = ImageOps.mirror(im)
+im_mirror.save('/home/joaquin/Documents/minionsepia.jpg', quality=95)
+
+plt.imshow(im_mirror, cmap = plt.get_cmap('PuBu'))
+plt.title('Espejo')
+plt.show()
